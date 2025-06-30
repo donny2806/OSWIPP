@@ -1,0 +1,76 @@
+<?php
+// api/upload_image.php
+// Endpoint API ini mengelola unggahan gambar untuk fitur chat.
+
+// Mulai sesi PHP jika belum dimulai. Penting untuk mengidentifikasi pengguna.
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+header('Content-Type: application/json'); // Pastikan respons dalam format JSON
+
+// Periksa apakah pengguna sudah login
+if (!isset($_SESSION['user_id'])) {
+    echo json_encode(['success' => false, 'message' => 'Anda harus login untuk mengunggah gambar.']);
+    exit();
+}
+
+// Pastikan ada file yang diunggah
+if (!isset($_FILES['image']) || $_FILES['image']['error'] !== UPLOAD_ERR_OK) {
+    echo json_encode(['success' => false, 'message' => 'Tidak ada file gambar yang diunggah atau terjadi kesalahan unggah.']);
+    exit();
+}
+
+$file = $_FILES['image'];
+$fileName = $file['name'];
+$fileTmpName = $file['tmp_name'];
+$fileSize = $file['size'];
+$fileError = $file['error'];
+$fileType = $file['type'];
+
+// Dapatkan ekstensi file
+$fileExt = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+
+// Tentukan ekstensi yang diizinkan
+$allowedExtensions = ['jpg', 'jpeg', 'png', 'gif'];
+
+// Folder tujuan untuk menyimpan gambar
+$uploadDir = '../uploads/chat_images/';
+
+// Buat folder jika belum ada
+if (!is_dir($uploadDir)) {
+    mkdir($uploadDir, 0777, true); // Buat rekursif dengan izin penuh (ubah di produksi)
+}
+
+// Validasi file
+if (!in_array($fileExt, $allowedExtensions)) {
+    echo json_encode(['success' => false, 'message' => 'Tipe file tidak diizinkan. Hanya JPG, JPEG, PNG, GIF.']);
+    exit();
+}
+
+if ($fileError !== 0) {
+    echo json_encode(['success' => false, 'message' => 'Terjadi kesalahan saat mengunggah file. Kode error: ' . $fileError]);
+    exit();
+}
+
+// Batasi ukuran file (misal: 5MB)
+$maxFileSize = 5 * 1024 * 1024; // 5 MB
+if ($fileSize > $maxFileSize) {
+    echo json_encode(['success' => false, 'message' => 'Ukuran file terlalu besar. Maksimal 5MB.']);
+    exit();
+}
+
+// Hasilkan nama file unik
+$newFileName = uniqid('', true) . '.' . $fileExt;
+$fileDestination = $uploadDir . $newFileName;
+
+// Pindahkan file yang diunggah dari direktori sementara ke direktori tujuan
+if (move_uploaded_file($fileTmpName, $fileDestination)) {
+    // Berikan URL gambar yang dapat diakses oleh browser
+    $image_url = 'uploads/chat_images/' . $newFileName; // URL relatif dari root situs
+
+    echo json_encode(['success' => true, 'message' => 'Gambar berhasil diunggah.', 'image_url' => $image_url]);
+} else {
+    echo json_encode(['success' => false, 'message' => 'Gagal memindahkan file yang diunggah.']);
+}
+?>
