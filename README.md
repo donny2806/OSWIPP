@@ -10,4 +10,4 @@ Ketika investor melakukan claim tugas / lunas mencicil tugas maka komisi akan di
 ini adalah tampilan login web dari mobile dan PC
 
 
-![alt text](https://github.com/donny2806/OSWIPP/blob/main/review/Screenshot_1.jpg)
+![alt text](https://github.com/donny2806/OSWIPP/blob/main/review/Screenshot_1.jpg) ![alt text](https://github.com/donny2806/OSWIPP/blob/main/review/Screenshot_3.jpg)
