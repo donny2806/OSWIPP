@@ -8,4 +8,4 @@ Jangan lupa melakukan import database claim_tugas_db.sql di mariadb, platform in
 Ketika investor melakukan claim tugas / lunas mencicil tugas maka komisi akan didapatkan sekaligus balance yang sudah terpotong akan kembali lagi. Proses acc dilakukan di panel admin di admin_dashboard.php untuk melakukan acc transaksi, acc klaim dan lain - lain. 
 
 ini adalah tampilan login web dari mobile dan PC
-[alt text](https://github.com/donny2806/OSWIPP/blob/main/review/Screenshot_1.jpg?raw=true)
+[alt text](https://github.com/donny2806/OSWIPP/blob/main/review/Screenshot_1.jpg)
