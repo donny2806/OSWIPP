@@ -22,6 +22,18 @@ $username = $_SESSION['username'] ?? 'Pengguna'; // Ambil username dari sesi
 $message = '';
 $message_type = ''; // 'success' atau 'error'
 
+// --- Tangani pesan dari sesi (Flash Message Pattern) ---
+// Periksa apakah ada flash message dari sesi
+if (isset($_SESSION['flash_message'])) {
+    $message = htmlspecialchars($_SESSION['flash_message']);
+    $message_type = $_SESSION['flash_message_type'] ?? 'info'; // Default ke 'info' jika tidak diset
+    
+    // Hapus flash message dari sesi agar tidak muncul lagi setelah refresh
+    unset($_SESSION['flash_message']);
+    unset($_SESSION['flash_message_type']);
+}
+// --- Akhir penanganan pesan dari sesi ---
+
 // Ambil data pengguna untuk menampilkan saldo dan untuk username di marquee
 $user_data = [];
 try {
@@ -50,11 +62,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_withdraw'])) {
     $account_name = trim($_POST['account_name']);
 
     if ($amount === false || $amount <= 0 || empty($bank_name) || empty($account_number) || empty($account_name)) {
-        $message = "Jumlah penarikan, nama bank, nomor rekening, dan nama pemilik rekening harus diisi dengan benar.";
-        $message_type = 'error';
+        $_SESSION['flash_message'] = "Jumlah penarikan, nama bank, nomor rekening, dan nama pemilik rekening harus diisi dengan benar.";
+        $_SESSION['flash_message_type'] = 'error';
+        header("Location: withdraw.php"); // Redirect tanpa parameter
+        exit();
     } elseif ($amount < 10000) { // Contoh minimal penarikan
-        $message = "Minimal penarikan adalah Rp 10.000.";
-        $message_type = 'error';
+        $_SESSION['flash_message'] = "Minimal penarikan adalah Rp 10.000.";
+        $_SESSION['flash_message_type'] = 'error';
+        header("Location: withdraw.php"); // Redirect tanpa parameter
+        exit();
     } else {
         try {
             $pdo->beginTransaction();
@@ -65,9 +81,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_withdraw'])) {
             $current_balance = $stmt->fetchColumn();
 
             if ($current_balance < $amount) {
-                $message = "Saldo Anda tidak mencukupi untuk penarikan ini.";
-                $message_type = 'error';
+                $_SESSION['flash_message'] = "Saldo Anda tidak mencukupi untuk penarikan ini.";
+                $_SESSION['flash_message_type'] = 'error';
                 $pdo->rollBack();
+                header("Location: withdraw.php"); // Redirect tanpa parameter
+                exit();
             } else {
                 // Kurangi saldo pengguna
                 $new_balance = $current_balance - $amount;
@@ -77,20 +95,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_withdraw'])) {
                 // Simpan transaksi penarikan ke database dengan status 'pending'
                 $stmt_insert_transaction = $pdo->prepare("INSERT INTO transactions (user_id, type, amount, status, bank_name, account_number, account_name) VALUES (?, 'withdraw', ?, 'pending', ?, ?, ?)");
                 if ($stmt_insert_transaction->execute([$current_user_id, $amount, $bank_name, $account_number, $account_name])) {
-                    $message = "Pengajuan penarikan sebesar Rp " . number_format($amount, 2, ',', '.') . " berhasil diajukan. Menunggu persetujuan admin.";
-                    $message_type = 'success';
+                    $_SESSION['flash_message'] = "Pengajuan penarikan sebesar Rp " . number_format($amount, 2, ',', '.') . " berhasil diajukan. Menunggu persetujuan admin.";
+                    $_SESSION['flash_message_type'] = 'success';
                     $pdo->commit();
+                    header("Location: withdraw.php"); // Redirect tanpa parameter
+                    exit(); // Penting: Hentikan eksekusi setelah redirect
                 } else {
-                    $message = "Gagal mengajukan penarikan. Silakan coba lagi.";
-                    $message_type = 'error';
+                    $_SESSION['flash_message'] = "Gagal mengajukan penarikan. Silakan coba lagi.";
+                    $_SESSION['flash_message_type'] = 'error';
                     $pdo->rollBack();
+                    header("Location: withdraw.php"); // Redirect tanpa parameter
+                    exit();
                 }
             }
         } catch (PDOException $e) {
             $pdo->rollBack(); // Rollback jika ada kesalahan
             error_log("Error processing withdraw transaction: " . $e->getMessage());
-            $message = "Terjadi kesalahan database: " . $e->getMessage();
-            $message_type = 'error';
+            $_SESSION['flash_message'] = "Terjadi kesalahan database: " . $e->getMessage();
+            $_SESSION['flash_message_type'] = 'error';
+            header("Location: withdraw.php"); // Redirect tanpa parameter
+            exit();
         }
     }
 }
@@ -103,8 +127,7 @@ try {
     $user_withdrawals = $stmt->fetchAll();
 } catch (PDOException $e) {
     error_log("Error fetching user withdrawals in withdraw.php: " . $e->getMessage());
-    $message = "Gagal memuat riwayat penarikan Anda.";
-    $message_type = 'error';
+    // Tidak menampilkan pesan error ke pengguna untuk ini, biarkan bagian kosong
 }
 
 /**
@@ -149,7 +172,7 @@ function censorGlobalAmountDisplay($amount) {
  * Menampilkan 2 digit pertama dan 2 digit terakhir, sisanya diganti bintang.
  * @param string $accountNumber Nomor rekening asli.
  * @return string Nomor rekening yang disensor.
- */
+*/
 function censorAccountNumber($accountNumber) {
     $len = strlen($accountNumber);
     if ($len <= 4) {
