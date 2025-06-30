@@ -1,0 +1,604 @@
+<?php
+// register.php
+// Halaman untuk registrasi pengguna baru.
+
+// Mulai sesi jika belum dimulai
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Sertakan file koneksi database
+require_once __DIR__ . '/db_connect.php';
+
+// Jika pengguna sudah login, arahkan ke dashboard
+if (isset($_SESSION['user_id'])) {
+    header('Location: dashboard.php');
+    exit();
+}
+
+$success_message = ''; // Variabel untuk menyimpan pesan sukses
+$error_message =    ''; // Variabel untuk menyimpan pesan kesalahan
+
+// Tangani proses registrasi ketika form disubmit
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
+    $username = trim($_POST['username']);
+    $email = trim($_POST['email']);
+    $full_name = trim($_POST['full_name']); // Tambahkan: Ambil Nama Lengkap dari input
+    $password = trim($_POST['password']);
+    $confirm_password = trim($_POST['confirm_password']);
+
+    // Validasi input
+    if (empty($username) || empty($email) || empty($full_name) || empty($password) || empty($confirm_password)) { // Tambahkan $full_name untuk validasi kosong
+        $error_message = "Semua kolom harus diisi.";
+    } elseif ($password !== $confirm_password) {
+        $error_message = "Konfirmasi password tidak cocok.";
+    } elseif (strlen($password) < 6) {
+        $error_message = "Password minimal 6 karakter.";
+    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $error_message = "Format email tidak valid.";
+    } else {
+        try {
+            // Periksa apakah username atau email sudah ada
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM users WHERE username = ? OR email = ?");
+            $stmt->execute([$username, $email]);
+            if ($stmt->fetchColumn() > 0) {
+                $error_message = "Username atau email sudah terdaftar. Silakan gunakan yang lain.";
+            } else {
+                // Hash password sebelum disimpan
+                $hashed_password = password_hash($password, PASSWORD_DEFAULT);
+
+                // Masukkan pengguna baru ke database, termasuk full_name
+                $stmt = $pdo->prepare("INSERT INTO users (username, email, full_name, password) VALUES (?, ?, ?, ?)");
+                if ($stmt->execute([$username, $email, $full_name, $hashed_password])) { // Tambahkan $full_name di execute
+                    $success_message = "Registrasi berhasil! Silakan login.";
+                    // Arahkan ke halaman login setelah beberapa detik atau langsung
+                    // header('Location: index.php');
+                    // exit();
+                } else {
+                    $error_message = "Gagal mendaftar. Silakan coba lagi.";
+                }
+            }
+        } catch (PDOException $e) {
+            $error_message = "Terjadi kesalahan database: " . $e->getMessage();
+            error_log("Registration error: " . $e->getMessage()); // Log kesalahan untuk debugging
+        }
+    }
+}
+
+// Sertakan header halaman
+include_once __DIR__ . '/header.php';
+?>
+
+<style>
+    body {
+        margin: 0;
+        /* Ganti dengan latar belakang statis. Misalnya, putih solid */
+        background-color: #FFFFFF;
+        overflow: hidden; /* Tetap hidden untuk mengelola tampilan */
+    }
+
+    /* Base styles for main container */
+    .main-container-layout {
+        position: relative; /* Penting untuk positioning anak-anak absolut di mobile */
+        height: 100vh;
+        overflow: hidden; /* Sembunyikan konten yang meluap selama transisi */
+        display: flex;
+        flex-direction: column; /* Default: tumpuk vertikal di layar kecil */
+        justify-content: center;
+        align-items: center;
+        padding: 2rem 1rem; /* Padding default */
+    }
+
+    /* Base styles for panels that will animate */
+    .animated-panel {
+        display: flex; /* Gunakan flex untuk memusatkan konten di dalamnya */
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding: 2rem; /* Padding konsisten di dalam panel */
+        box-sizing: border-box; /* Sertakan padding dalam perhitungan lebar/tinggi */
+        /* Transisi hanya untuk opacity dan filter, transform dihapus */
+        transition: opacity 0.5s ease-out, filter 0.5s ease;
+    }
+
+    /* Styling untuk area konten kiri */
+    .left-content-area {
+        color: #333; /* Warna teks gelap agar terbaca di latar belakang putih */
+        text-shadow: 0 1px 2px rgba(255,255,255,0.3); /* Sedikit bayangan terang untuk kontras */
+        text-align: center; /* Pusatkan teks di mobile */
+    }
+
+    /* Slideshow Container */
+    .slideshow-container {
+        position: relative;
+        width: 80%; /* Sesuaikan dengan max-width gambar Anda */
+        max-width: 400px; /* Batas lebar gambar */
+        height: auto; /* Otomatis */
+        margin-bottom: 1.5rem;
+        overflow: hidden; /* Sembunyikan gambar yang meluap */
+        border-radius: 8px; /* Match with other elements */
+        box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+    }
+
+    .slideshow-image {
+        width: 100%;
+        height: auto;
+        display: block; /* Menghilangkan spasi ekstra */
+        opacity: 0; /* Awalnya sembunyikan */
+        transition: opacity 1s ease-in-out; /* Animasi fade */
+        position: absolute;
+        top: 0;
+        left: 0;
+    }
+
+    .slideshow-image.active {
+        opacity: 1; /* Tampilkan gambar aktif */
+    }
+
+    /* Styling untuk pembungkus formulir register */
+    .register-form-wrapper {
+        background-color: rgba(255, 255, 255, 0.2); /* Latar belakang putih transparan 20% */
+        backdrop-filter: blur(8px); /* Efek blur pada latar belakang elemen di baliknya */
+        border-radius: 1rem;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+        width: 90%; /* Di mobile, ambil 90% dari lebar layar */
+        max-width: 400px; /* Lebar maksimum untuk pembungkus formulir */
+        margin: auto; /* Ini akan memusatkan formulir yang dibatasi di dalam panel 100% lebar di mobile */
+        
+        /* Pastikan konten dapat dibaca di dalamnya */
+        color: #333;
+    }
+    .register-form-wrapper h2 { /* Perubahan: Ukuran font judul form */
+        color: #333;
+        font-size: 1.5rem; /* Mengurangi dari text-3xl */
+    }
+    .register-form-wrapper label, .register-form-wrapper p {
+        color: #333; /* Pastikan teks gelap untuk kontras pada latar belakang semi-transparan yang terang */
+    }
+
+    /* Styling untuk indikator kekuatan password (teks) */
+    #password-strength-indicator {
+        font-size: 0.75rem; /* Ukuran font lebih kecil */
+        font-weight: bold;
+        text-align: right; /* Sejajarkan ke kanan */
+        margin-top: 0.25rem; /* Jarak atas sedikit */
+        height: 1.25rem; /* Beri tinggi tetap untuk mencegah CLS */
+    }
+    .strength-weak {
+        color: #ef4444; /* Merah */
+    }
+    .strength-medium {
+        color: #f59e0b; /* Oranye */
+    }
+    .strength-strong {
+        color: #22c55e; /* Hijau */
+    }
+
+
+    /* --- MOBILE-SPECIFIC STYLES (DEFAULT) --- */
+    @media (max-width: 767px) {
+        .left-content-area {
+            position: absolute; /* Posisikan absolut di mobile */
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 5; /* Z-index lebih rendah dari form register */
+            opacity: 1; /* Awalnya terlihat */
+            filter: none; /* Awalnya tidak blur */
+        }
+
+        .left-content-area.blurred-bg {
+            opacity: 0.5; /* Agak redup */
+            filter: blur(5px); /* Efek blur */
+            pointer-events: none; /* Cegah interaksi saat blur */
+        }
+
+        .register-form-wrapper {
+            position: absolute; /* Posisikan absolut di mobile */
+            top: 50%; /* Pusatkan secara vertikal */
+            left: 50%; /* Pusatkan secara horizontal */
+            transform: translateX(-50%) translateY(-50%); /* Langsung ke tengah */
+            opacity: 0; /* Awalnya tidak terlihat */
+            pointer-events: none; /* Cegah interaksi saat tersembunyi */
+            z-index: 10; /* Z-index lebih tinggi dari konten kiri */
+            display: none; /* Awalnya sembunyikan */
+        }
+
+        .register-form-wrapper.visible { /* Kelas baru untuk visibilitas tanpa animasi transform */
+            opacity: 1;
+            pointer-events: auto; /* Izinkan interaksi saat terlihat */
+            display: flex; /* Tampilkan sebagai flex */
+        }
+        
+        #showRegisterFormBtn {
+            display: flex; /* Tampilkan tombol ini di mobile */
+            position: absolute; /* Posisikan di atas konten kiri */
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 15; /* Di atas konten kiri */
+        }
+        #hideRegisterFormBtn {
+            display: flex; /* Tampilkan tombol ini saat form terlihat di mobile */
+            z-index: 15; /* Di atas elemen form */
+        }
+    }
+
+    /* --- PC AND TABLET STYLES (min-width: 768px) --- */
+    @media (min-width: 768px) {
+        .main-container-layout {
+            flex-direction: row; /* Tata letak berdampingan */
+            justify-content: space-between;
+            align-items: center;
+            padding: 2rem 4rem; /* Padding desktop */
+        }
+
+        .animated-panel { /* Reset posisi absolut untuk desktop */
+            position: relative;
+            width: auto; /* Biarkan flexbox mengontrol lebar */
+            height: auto;
+            padding: 0; /* Reset padding panel */
+            transform: translateY(0) !important; /* Timpa transform JS */
+            opacity: 1 !important; /* Selalu terlihat */
+            filter: none !important; /* Selalu tidak blur */
+            pointer-events: auto !important;
+            align-items: flex-start; /* Sejajarkan item ke awal untuk aliran teks biasa */
+            margin: 0; /* Pastikan tidak ada margin otomatis yang mengganggu flexbox */
+        }
+        
+        .left-content-area {
+            flex: 1; /* Ambil ruang yang tersedia */
+            max-width: 45%; /* Batasi lebar konten kiri */
+            margin-right: 2rem; /* Jarak antara konten kiri dan formulir */
+            color: #333; /* Pertahankan warna teks gelap di desktop/tablet */
+            text-shadow: 0 1px 2px rgba(255,255,255,0.3); /* Sedikit bayangan terang untuk kontras */
+            text-align: left; /* Sejajarkan teks ke kiri di desktop */
+            z-index: auto; /* Reset z-index */
+        }
+        .left-content-area h3 { /* Perubahan: Ukuran font judul konten kiri */
+            font-size: 1.5rem; /* Mengurangi dari text-3xl */
+        }
+        .left-content-area p { /* Perubahan: Ukuran font paragraf konten kiri */
+            font-size: 0.875rem; /* Mengurangi dari text-lg menjadi text-base (font-size: 1rem) atau text-sm (0.875rem) */
+            line-height: 1.5; /* Sesuaikan line-height agar tetap terbaca */
+        }
+
+        .register-form-wrapper { /* Diubah dari login-form-wrapper */
+            flex-shrink: 0; /* Cegah penyusutan */
+            width: 100%; /* Ambil lebar penuh dari kolomnya */
+            max-width: 400px; /* Pertahankan lebar maksimum spesifik */
+            padding: 2.5rem; /* Kembalikan padding asli */
+            align-items: center; /* Pusatkan konten secara horizontal di desktop */
+            z-index: auto; /* Reset z-index */
+            display: flex; /* Selalu tampil sebagai flex di desktop */
+        }
+
+        /* Sembunyikan tombol khusus seluler di desktop/tablet */
+        #showRegisterFormBtn, #hideRegisterFormBtn {
+            display: none !important;
+        }
+    }
+</style>
+
+<main class="flex-grow container mx-auto p-4 md:p-8 main-container-layout">
+    <!-- Konten Kiri (Awalnya terlihat) -->
+    <div id="leftContentArea" class="left-content-area animated-panel">
+        <div class="slideshow-container">
+            <img src="produk/produk.png" alt="Gambar Produk 1" class="slideshow-image active" onerror="this.onerror=null;this.src='https://placehold.co/600x400/CCCCCC/666666?text=Gambar+Produk+Tidak+Ditemukan';">
+            <img src="produk/produk2.png" alt="Gambar Produk 2" class="slideshow-image" onerror="this.onerror=null;this.src='https://placehold.co/600x400/CCCCCC/666666?text=Gambar+Produk+Tidak+Ditemukan';">
+            <img src="produk/produk3.png" alt="Gambar Produk 3" onerror="this.onerror=null;this.src='https://placehold.co/600x400/CCCCCC/666666?text=Gambar+Produk+Tidak+Ditemukan';">
+            <img src="produk/produk4.png" alt="Gambar Produk 4" onerror="this.onerror=null;this.src='https://placehold.co/600x400/CCCCCC/666666?text=Gambar+Produk+Tidak+Ditemukan';">
+            <img src="produk/produk5.png" alt="Gambar Produk 5" onerror="this.onerror=null;this.src='https://placehold.co/600x400/CCCCCC/666666?text=Gambar+Produk+Tidak+Ditemukan';">
+        </div>
+        <h3 class="text-3xl font-bold mb-4">Selamat Datang di Deprintz App!</h3> <!-- Hapus kelas Tailwind, gunakan CSS kustom -->
+        <p class="text-lg leading-relaxed"> <!-- Hapus kelas Tailwind, gunakan CSS kustom -->
+            Solusi terbaik untuk mengatasi permasalahan percetakan, terpercaya, aman dan berkualitas. Bergabunglah di jaringan kami dan mulai hasilkan sekarang!
+        </p>
+        <!-- Tombol "Daftar Sekarang" -->
+        <button id="showRegisterFormBtn" class="mt-8 px-6 py-3 bg-green-600 text-white font-bold rounded-lg shadow-md transition duration-200 ease-in-out transform hover:-translate-y-1 hover:scale-105 flex items-center justify-center">
+            Daftar Sekarang <i class="fas fa-arrow-right ml-2"></i>
+        </button>
+    </div>
+
+    <!-- Form Registrasi (Awalnya tersembunyi di mobile, tapi selalu terlihat di desktop/tablet oleh CSS/JS) -->
+    <div id="registerFormWrapper" class="register-form-wrapper animated-panel">
+        <!-- Tombol "Kembali" -->
+        <button id="hideRegisterFormBtn" class="text-gray-600 hover:text-gray-800 mb-4 flex items-center hidden">
+            <i class="fas fa-arrow-left mr-2"></i> Kembali
+        </button>
+        <h2 class="text-3xl font-bold text-center text-gray-800 mb-6">Registrasi</h2> <!-- Hapus kelas Tailwind, gunakan CSS kustom -->
+        
+        <?php if ($success_message): ?>
+            <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative mb-4" role="alert">
+                <strong class="font-bold">Sukses!</strong>
+                <span class="block sm:inline"><?= htmlspecialchars($success_message) ?></span>
+            </div>
+        <?php endif; ?>
+
+        <?php if ($error_message): ?>
+            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
+                <strong class="font-bold">Error!</strong>
+                <span class="block sm:inline"><?= htmlspecialchars($error_message) ?></span>
+            </div>
+        <?php endif; ?>
+
+        <form action="register.php" method="POST" class="space-y-2">
+            <div>
+                <label for="username" class="block text-gray-700 text-sm font-semibold mb-1">Username</label>
+                <input type="text" id="username" name="username" required
+                       class="shadow-sm appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                       placeholder="Buat username Anda" value="<?= isset($_POST['username']) ? htmlspecialchars($_POST['username']) : '' ?>">
+            </div>
+            <div>
+                <label for="email" class="block text-gray-700 text-sm font-semibold mb-1">Email</label>
+                <input type="email" id="email" name="email" required
+                       class="shadow-sm appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                       placeholder="Masukkan alamat email Anda" value="<?= isset($_POST['email']) ? htmlspecialchars($_POST['email']) : '' ?>">
+            </div>
+            <!-- Input untuk Nama Lengkap -->
+            <div>
+                <label for="full_name" class="block text-gray-700 text-sm font-semibold mb-1">Nama Lengkap</label>
+                <input type="text" id="full_name" name="full_name" required
+                       class="shadow-sm appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                       placeholder="Masukkan nama lengkap Anda" value="<?= isset($_POST['full_name']) ? htmlspecialchars($_POST['full_name']) : '' ?>">
+            </div>
+            <div>
+                <label for="password" class="block text-gray-700 text-sm font-semibold mb-1">Password</label>
+                <input type="password" id="password" name="password" required
+                       class="shadow-sm appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                       placeholder="Buat password (min. 6 karakter)">
+                <!-- Indikator Kekuatan Password (Teks) -->
+                <div id="password-strength-indicator"></div>
+            </div>
+            <div>
+                <label for="confirm_password" class="block text-gray-700 text-sm font-semibold mb-1">Konfirmasi Password</label>
+                <input type="password" id="confirm_password" name="confirm_password" required
+                       class="shadow-sm appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                       placeholder="Konfirmasi password Anda">
+            </div>
+            <button type="submit" name="register"
+                    class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg focus:outline-none focus:shadow-outline transition duration-200 ease-in-out transform hover:-translate-y-1 hover:scale-105">
+                Daftar
+            </button>
+        </form>
+        
+        <p class="text-center text-gray-600 text-sm mt-4">
+            Sudah punya akun? <a href="index.php" class="text-blue-600 hover:text-blue-800 font-semibold">Login di sini</a>.
+        </p>
+    </div>
+</main>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Dapatkan elemen-elemen untuk toggle tampilan
+        const leftContentArea = document.getElementById('leftContentArea');
+        const registerFormWrapper = document.getElementById('registerFormWrapper');
+        const showRegisterFormBtn = document.getElementById('showRegisterFormBtn');
+        const hideRegisterFormBtn = document.getElementById('hideRegisterFormBtn');
+
+        // Referensi elemen password dan indikator
+        const passwordInput = document.getElementById('password');
+        const passwordStrengthIndicator = document.getElementById('password-strength-indicator');
+        // const passwordStrengthBar = document.getElementById('password-strength-bar'); // Dihapus: referensi bar
+
+        // Fungsi untuk mengecek kekuatan password
+        function checkPasswordStrength(password) {
+            let score = 0; // Menggunakan 'score' untuk perhitungan
+            let text = '';
+            let textColorClass = '';
+
+            // Kriteria: panjang, huruf besar, huruf kecil, angka, simbol
+            const hasLowercase = /[a-z]/.test(password);
+            const hasUppercase = /[A-Z]/.test(password);
+            const hasNumber = /[0-9]/.test(password);
+            const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]+/.test(password);
+
+            // Poin berdasarkan panjang
+            if (password.length >= 6) {
+                score += 1; // Minimal panjang
+            }
+            if (password.length >= 8) {
+                score += 1; // Panjang lebih baik
+            }
+            if (password.length >= 12) {
+                score += 1; // Sangat panjang
+            }
+
+            // Poin berdasarkan kombinasi karakter
+            let criteriaMet = 0;
+            if (hasLowercase) criteriaMet++;
+            if (hasUppercase) criteriaMet++;
+            if (hasNumber) criteriaMet++;
+            if (hasSpecialChar) criteriaMet++;
+
+            if (criteriaMet >= 2) { // Setidaknya 2 dari 4 jenis karakter
+                score += 1;
+            }
+            if (criteriaMet >= 3) { // Setidaknya 3 dari 4 jenis karakter
+                score += 1;
+            }
+            if (criteriaMet === 4) { // Semua jenis karakter
+                score += 1;
+            }
+
+            // Menentukan level kekuatan, teks, dan warna
+            if (password.length === 0) {
+                text = '';
+                textColorClass = '';
+            } else if (score < 3) { // Misalnya, score 0-2 = Lemah
+                text = 'Lemah';
+                textColorClass = 'strength-weak';
+            } else if (score < 5) { // Misalnya, score 3-4 = Sedang
+                text = 'Sedang';
+                textColorClass = 'strength-medium';
+            } else { // Misalnya, score 5+ = Kuat
+                text = 'Kuat';
+                textColorClass = 'strength-strong';
+            }
+
+            return { text, textColorClass };
+        }
+
+        // Event listener untuk input password
+        if (passwordInput && passwordStrengthIndicator) { // Dihapus: passwordStrengthBar dari kondisi if
+            passwordInput.addEventListener('input', function() {
+                const strength = checkPasswordStrength(this.value);
+                
+                // Update indikator teks
+                passwordStrengthIndicator.textContent = strength.text;
+                passwordStrengthIndicator.className = 'mt-1 ' + strength.textColorClass; // Reset kelas dan tambahkan yang baru
+
+                // Dihapus: Update indikator bar
+                // passwordStrengthBar.style.width = strength.barWidth + '%';
+                // passwordStrengthBar.className = strength.barColorClass;
+            });
+        }
+
+
+        // Fungsi untuk mengatur visibilitas awal berdasarkan ukuran layar
+        function setInitialVisibility() {
+            // Periksa apakah ada pesan error atau sukses dari PHP. Jika ada, langsung tampilkan form.
+            const hasServerMessage = '<?php echo !empty($error_message) || !empty($success_message) ? 'true' : 'false'; ?>' === 'true';
+
+            if (window.innerWidth < 768) { // Tampilan mobile
+                if (hasServerMessage) {
+                    // Jika ada pesan dari server, langsung tampilkan form dan blur background
+                    leftContentArea.classList.add('blurred-bg');
+                    leftContentArea.style.opacity = '0.5';
+                    leftContentArea.style.display = 'flex'; // Pastikan terlihat
+
+                    registerFormWrapper.classList.add('visible'); // Tampilkan form
+                    registerFormWrapper.style.display = 'flex'; // Pastikan ditampilkan sebagai flex
+
+                    showRegisterFormBtn.classList.add('hidden');
+                    hideRegisterFormBtn.classList.remove('hidden');
+                } else {
+                    // Konten kiri terlihat, form register tersembunyi
+                    leftContentArea.classList.remove('blurred-bg');
+                    leftContentArea.style.opacity = '1';
+                    leftContentArea.style.display = 'flex'; // Pastikan terlihat
+                    
+                    registerFormWrapper.classList.remove('visible'); // Hapus kelas visible
+                    registerFormWrapper.style.display = 'none'; // Sembunyikan form
+
+                    showRegisterFormBtn.classList.remove('hidden'); // Tampilkan tombol Daftar Sekarang
+                    hideRegisterFormBtn.classList.add('hidden'); // Sembunyikan tombol Kembali
+                }
+            } else { // Tampilan PC dan Tablet (>= 768px)
+                // Keduanya terlihat berdampingan
+                leftContentArea.classList.remove('blurred-bg');
+                leftContentArea.style.opacity = '1';
+                leftContentArea.style.display = 'flex';
+
+                registerFormWrapper.classList.remove('visible'); // Hapus kelas visible
+                registerFormWrapper.style.display = 'flex'; // Selalu tampil sebagai flex di desktop
+                
+                showRegisterFormBtn.classList.add('hidden'); // Sembunyikan tombol Daftar Sekarang
+                hideRegisterFormBtn.classList.add('hidden'); // Sembunyikan tombol Kembali
+            }
+        }
+
+        // Event listener untuk tombol "Daftar Sekarang"
+        if (showRegisterFormBtn) {
+            showRegisterFormBtn.addEventListener('click', function() {
+                if (window.innerWidth < 768) { // Hanya untuk mobile
+                    leftContentArea.classList.add('blurred-bg'); // Terapkan blur dan redupkan background
+                    // leftContentArea.style.display = 'flex'; // Biarkan flex untuk efek blur
+
+                    registerFormWrapper.classList.add('visible'); // Tampilkan form
+                    registerFormWrapper.style.display = 'flex'; // Pastikan ditampilkan sebagai flex
+
+                    // Sembunyikan/tampilkan tombol
+                    toastr.options = {
+                        "closeButton": true,
+                        "debug": false,
+                        "newestOnTop": false,
+                        "progressBar": true,
+                        "positionClass": "toast-top-right",
+                        "preventDuplicates": false,
+                        "onclick": null,
+                        "showDuration": "300",
+                        "hideDuration": "1000",
+                        "timeOut": "5000",
+                        "extendedTimeOut": "1000",
+                        "showEasing": "swing",
+                        "hideEasing": "linear",
+                        "showMethod": "fadeIn",
+                        "hideMethod": "fadeOut"
+                    };
+                    showRegisterFormBtn.classList.add('hidden');
+                    hideRegisterFormBtn.classList.remove('hidden');
+                }
+            });
+        }
+
+        // Event listener untuk tombol "Kembali"
+        if (hideRegisterFormBtn) {
+            hideRegisterFormBtn.addEventListener('click', function() {
+                if (window.innerWidth < 768) { // Hanya untuk mobile
+                    registerFormWrapper.classList.remove('visible'); // Sembunyikan form
+                    registerFormWrapper.style.display = 'none'; // Pastikan disembunyikan
+                    
+                    leftContentArea.classList.remove('blurred-bg'); // Hapus blur dari background
+                    // leftContentArea.style.display = 'flex'; // Biarkan flex
+                    
+                    // Sembunyikan/tampilkan tombol
+                    showRegisterFormBtn.classList.remove('hidden');
+                    hideRegisterFormBtn.classList.add('hidden');
+                }
+            });
+        }
+
+        // --- Slideshow Logic ---
+        let slideIndex = 0;
+        const slideshowImages = document.querySelectorAll('.slideshow-image');
+        const slideshowContainer = document.querySelector('.slideshow-container');
+
+        // Set the height of the slideshow container based on the first image to prevent layout shifts
+        function setSlideshowContainerHeight() {
+            if (slideshowImages.length > 0) {
+                const firstImage = slideshowImages[0];
+                // Ensure the image is loaded to get its natural height
+                if (firstImage.complete) {
+                    slideshowContainer.style.height = `${firstImage.clientHeight}px`;
+                } else {
+                    firstImage.onload = () => {
+                        slideshowContainer.style.height = `${firstImage.clientHeight}px`;
+                    };
+                }
+            }
+        }
+
+        function showSlides() {
+            if (slideshowImages.length === 0) return;
+
+            for (let i = 0; i < slideshowImages.length; i++) {
+                slideshowImages[i].classList.remove('active');
+            }
+            slideIndex++;
+            if (slideIndex > slideshowImages.length) {
+                slideIndex = 1;
+            }
+            slideshowImages[slideIndex - 1].classList.add('active');
+            setTimeout(showSlides, 3000); // Change image every 3 seconds
+        }
+
+        // Call showSlides and setSlideshowContainerHeight after images are loaded
+        window.addEventListener('load', () => {
+            setSlideshowContainerHeight(); // Set initial height
+            showSlides(); // Start slideshow
+        });
+        window.addEventListener('resize', setSlideshowContainerHeight); // Adjust height on resize
+
+        // Terapkan pengaturan visibilitas awal
+        setInitialVisibility();
+        // Terapkan kembali saat ukuran jendela berubah (penting untuk responsivitas)
+        window.addEventListener('resize', setInitialVisibility);
+    });
+</script>
+
+<?php
+// Sertakan footer halaman
+include_once __DIR__ . '/footer.php';
+?>
